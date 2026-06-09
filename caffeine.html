@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050506">
+<title>Caffeine</title>
+<script src="lock.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sync.js" defer></script>
+<script src="topbar.js" defer></script>
+<style>
+:root {
+  --text-primary: #FAFAFA;
+  --text-secondary: #B8B6B0;
+  --text-tertiary: #76746E;
+  --success: #6BE3A4;
+  --warning: #F2C063;
+  --danger:  #FF6B6B;
+  --accent:  #C9A36B;
+  --font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0; background: #050506;
+  color: var(--text-secondary); font-family: var(--font);
+  -webkit-font-smoothing: antialiased; -webkit-text-size-adjust: 100%;
+}
+body {
+  min-height: 100vh; position: relative; overflow-x: hidden;
+  padding: max(28px, env(safe-area-inset-top)) 20px 60px;
+}
+body::before {
+  content: ''; position: fixed; inset: 0;
+  background:
+    radial-gradient(circle at 78% 10%, rgba(201,163,107,0.18), transparent 42%),
+    radial-gradient(circle at 20% 88%, rgba(107,227,164,0.07), transparent 48%);
+  filter: blur(40px); pointer-events: none; z-index: -2;
+  animation: drift 36s ease-in-out infinite alternate;
+}
+body::after {
+  content: ''; position: fixed; inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,0.014) 1px, transparent 1px);
+  background-size: 3px 3px; pointer-events: none; z-index: -1;
+}
+@keyframes drift { 0% { transform: translate3d(0,0,0); } 100% { transform: translate3d(-22px,14px,0); } }
+
+.page { max-width: 720px; margin: 0 auto; }
+.dash-title {
+  margin: 0 0 14px; font-size: 28px; font-weight: 700; letter-spacing: -0.025em;
+  background: linear-gradient(180deg, #FFFFFF 0%, #C7C4BC 120%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+@media (max-width: 480px) { .dash-title { font-size: 22px; } }
+
+.section { margin-top: 8px; }
+.section-title {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--text-tertiary); display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
+}
+.section-title::before { content: ''; width: 18px; height: 1px; background: var(--text-tertiary); opacity: 0.6; }
+.section-title::after  { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, rgba(255,255,255,0.08), transparent); }
+
+.gm-card {
+  background: rgba(255,255,255,0.04); border-radius: 16px; padding: 20px;
+  margin-bottom: 14px; backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2); box-shadow: 0 12px 40px rgba(0,0,0,0.45); overflow: hidden;
+}
+
+/* ── Your Day ── */
+.caf-day-top { display: flex; align-items: center; gap: 20px; margin-bottom: 18px; }
+.caf-ring-wrap { position: relative; width: 96px; height: 96px; flex-shrink: 0; }
+.caf-ring { width: 100%; height: 100%; transform: rotate(-90deg); }
+.caf-ring-track { fill: none; stroke: rgba(255,255,255,0.07); stroke-width: 9; }
+.caf-ring-fill  {
+  fill: none; stroke: var(--success); stroke-width: 9; stroke-linecap: round;
+  stroke-dasharray: 238.76; stroke-dashoffset: 238.76;
+  transition: stroke-dashoffset 0.55s cubic-bezier(0.22,1,0.36,1), stroke 0.3s;
+}
+.caf-ring-center {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; pointer-events: none;
+}
+.caf-ring-num   { font-size: 26px; font-weight: 700; color: var(--text-primary); line-height: 1; font-variant-numeric: tabular-nums; }
+.caf-ring-lbl   { font-size: 8.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-tertiary); margin-top: 3px; }
+.caf-state      { flex: 1; min-width: 0; }
+.caf-state-word { font-size: 30px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; line-height: 1; }
+.caf-state-time { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-tertiary); margin-top: 6px; }
+.caf-state-hint { font-size: 10.5px; color: var(--text-tertiary); margin-top: 3px; font-style: italic; }
+
+.caf-toggle-group {
+  display: inline-flex; gap: 3px; background: rgba(255,255,255,0.04);
+  border-radius: 10px; padding: 3px; margin-bottom: 10px;
+}
+.caf-toggle-btn {
+  padding: 5px 13px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--text-tertiary);
+  font-family: var(--font-mono); font-size: 9.5px; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.caf-toggle-btn.active { background: rgba(255,255,255,0.12); color: var(--text-primary); }
+
+.caf-chart-wrap { position: relative; width: 100%; height: 130px; margin-bottom: 14px; user-select: none; touch-action: pan-y; }
+.caf-chart-svg  { display: block; width: 100%; height: 100%; cursor: crosshair; overflow: visible; }
+
+.caf-footer-band {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+  padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.06);
+}
+.caf-footer-lbl { font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 4px; }
+.caf-footer-val { font-size: 13px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+/* ── Smart Timing ── */
+.caf-timing-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+.caf-timing-tile { padding: 16px; margin-bottom: 0; }
+.caf-tile-eye   { font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 8px; }
+.caf-tile-val   { font-size: 20px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; line-height: 1.1; margin-bottom: 4px; }
+.caf-tile-sub   { font-size: 10.5px; color: var(--text-secondary); line-height: 1.4; }
+.caf-tips       { list-style: none; margin: 0; padding: 0; }
+.caf-tip {
+  display: flex; gap: 10px; padding: 10px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-size: 12.5px; color: var(--text-secondary); line-height: 1.55;
+}
+.caf-tip:last-child { border-bottom: 0; padding-bottom: 0; }
+.caf-tip-icon   { font-size: 15px; flex-shrink: 0; line-height: 1.5; }
+
+/* ── Today ── */
+.caf-intake-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+.caf-intake-num { font-size: 46px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.045em; line-height: 1; font-variant-numeric: tabular-nums; }
+.caf-intake-unit{ font-size: 15px; color: var(--text-tertiary); font-family: var(--font-mono); }
+.caf-mg-track   { height: 7px; background: rgba(255,255,255,0.06); border-radius: 999px; overflow: hidden; margin-bottom: 7px; }
+.caf-mg-fill    { height: 100%; border-radius: 999px; background: var(--success); transition: width 0.4s ease, background 0.3s; }
+.caf-mg-meta    { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--text-tertiary); font-family: var(--font-mono); }
+.caf-active-now { margin-top: 12px; font-size: 13px; color: var(--text-secondary); }
+.caf-active-now strong { color: var(--text-primary); }
+.caf-note {
+  margin-top: 10px; font-size: 11.5px; color: var(--text-tertiary); line-height: 1.55;
+  padding: 10px 12px; background: rgba(255,255,255,0.025);
+  border-radius: 10px; border: 1px solid rgba(255,255,255,0.04);
+}
+
+/* ── Log a Drink ── */
+.gm-input {
+  width: 100%; padding: 10px 14px; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
+  background: rgba(0,0,0,0.28); color: var(--text-primary); font-family: inherit; font-size: 14px;
+  outline: none; transition: border-color 0.2s, background 0.2s; margin-bottom: 12px; display: block;
+}
+.gm-input::placeholder { color: var(--text-tertiary); }
+.gm-input:focus { border-color: rgba(255,255,255,0.28); background: rgba(0,0,0,0.36); }
+.caf-drink-grid { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 14px; min-height: 36px; }
+.caf-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 7px 12px;
+  border-radius: 999px; cursor: pointer;
+  background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.08);
+  color: var(--text-secondary); font-size: 12px; font-weight: 500;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  -webkit-tap-highlight-color: transparent;
+}
+.caf-chip:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.18); color: var(--text-primary); }
+.caf-chip:active { transform: scale(0.95); }
+.caf-chip-mg { font-family: var(--font-mono); font-size: 10px; color: var(--text-tertiary); }
+.caf-chip-custom { border-color: rgba(201,163,107,0.3); }
+.caf-custom-row { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.06); }
+.caf-custom-row .gm-input { margin-bottom: 0; }
+.caf-custom-name { flex: 1 1 150px; }
+.caf-custom-mg   { flex: 0 0 80px; }
+.gm-add {
+  flex: 0 0 auto; padding: 10px 18px; border: 0; border-radius: 12px;
+  background: linear-gradient(180deg, #FFFFFF 0%, #E8E5DD 100%);
+  color: #0A0A0B; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 8px rgba(0,0,0,0.35);
+  transition: transform 0.1s, filter 0.15s;
+}
+.gm-add:hover  { filter: brightness(1.06); transform: translateY(-1px); }
+.gm-add:active { transform: translateY(0); }
+
+/* ── Logged Today ── */
+.caf-log-list  { list-style: none; margin: 0; padding: 0; }
+.caf-log-empty { text-align: center; font-size: 12px; font-style: italic; color: var(--text-tertiary); padding: 14px 0; }
+.caf-log-entry {
+  display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; margin-bottom: 6px;
+  background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px;
+}
+.caf-log-emoji { font-size: 20px; flex-shrink: 0; line-height: 1.3; }
+.caf-log-body  { flex: 1; min-width: 0; }
+.caf-log-name  { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px; }
+.caf-log-meta  { font-size: 10.5px; color: var(--text-tertiary); font-family: var(--font-mono); margin-bottom: 6px; }
+.caf-milestones{ display: flex; gap: 6px; flex-wrap: wrap; }
+.caf-ms {
+  display: inline-flex; align-items: center; gap: 3px; font-size: 10px;
+  background: rgba(255,255,255,0.04); border-radius: 5px; padding: 2px 7px;
+  font-family: var(--font-mono); color: var(--text-tertiary);
+}
+.caf-ms.past   { opacity: 0.35; }
+.caf-ms-lbl    { font-weight: 700; }
+.caf-log-del {
+  background: transparent; border: 0; color: var(--text-tertiary); font-size: 18px;
+  cursor: pointer; padding: 0 2px; opacity: 0.35; transition: opacity 0.15s, color 0.15s; flex-shrink: 0;
+}
+.caf-log-entry:hover .caf-log-del { opacity: 0.7; }
+.caf-log-del:hover { color: var(--danger); opacity: 1; }
+
+@media (max-width: 600px) { .caf-timing-grid { grid-template-columns: 1fr; } }
+@media (max-width: 480px) {
+  body { padding: max(20px, env(safe-area-inset-top)) 14px 50px; }
+  .gm-card { padding: 16px; }
+  .caf-footer-band { grid-template-columns: 1fr 1fr; }
+  .caf-footer-band > div:last-child { grid-column: 1 / -1; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1 class="dash-title">Caffeine</h1>
+
+  <!-- ═══════════════════════════════ 1 · YOUR DAY ═══════════════════════════════ -->
+  <div class="section">
+    <div class="section-title">Your Day</div>
+    <div class="gm-card">
+
+      <div class="caf-day-top">
+        <div class="caf-ring-wrap">
+          <svg class="caf-ring" viewBox="0 0 96 96">
+            <circle class="caf-ring-track" cx="48" cy="48" r="38"/>
+            <circle class="caf-ring-fill"  cx="48" cy="48" r="38" id="cafRingFill"/>
+          </svg>
+          <div class="caf-ring-center">
+            <div class="caf-ring-num" id="cafRingNum">—</div>
+            <div class="caf-ring-lbl" id="cafRingLbl">NOW</div>
+          </div>
+        </div>
+        <div class="caf-state">
+          <div class="caf-state-word" id="cafStateWord">—</div>
+          <div class="caf-state-time" id="cafStateTime">RIGHT NOW</div>
+          <div class="caf-state-hint">Hover / drag the curve</div>
+        </div>
+      </div>
+
+      <div class="caf-toggle-group" id="cafToggleGroup">
+        <button class="caf-toggle-btn active" data-mode="line">LINE</button>
+        <button class="caf-toggle-btn"        data-mode="bars">BARS</button>
+        <button class="caf-toggle-btn"        data-mode="stack">STACK</button>
+      </div>
+
+      <div class="caf-chart-wrap">
+        <svg id="cafSvg" class="caf-chart-svg" viewBox="0 0 600 130"
+             preserveAspectRatio="none" aria-hidden="true">
+          <g id="cafNight"></g>
+          <g id="cafGrid"></g>
+          <path id="cafStackBase" fill="none" stroke="none"/>
+          <path id="cafStackCaf"  fill="none" stroke="none"/>
+          <g   id="cafBars"></g>
+          <path id="cafCurve" fill="none" stroke="#6BE3A4" stroke-width="2.2"
+                stroke-linecap="round" stroke-linejoin="round"/>
+          <line id="cafNowLine" stroke="rgba(255,255,255,0.22)" stroke-width="1" stroke-dasharray="3 3"/>
+          <circle id="cafNowDot" r="4" fill="#FFFFFF"/>
+          <line id="cafScrubLine" stroke="rgba(201,163,107,0.85)" stroke-width="1"
+                stroke-dasharray="3 3" opacity="0"/>
+          <circle id="cafScrubDot" r="4.5" fill="#C9A36B" opacity="0"/>
+          <g id="cafAxis"></g>
+        </svg>
+      </div>
+
+      <div class="caf-footer-band">
+        <div><div class="caf-footer-lbl">Peak focus</div><div class="caf-footer-val" id="cafFtrPeak">—</div></div>
+        <div><div class="caf-footer-lbl">Predicted crash</div><div class="caf-footer-val" id="cafFtrCrash">—</div></div>
+        <div><div class="caf-footer-lbl">Last coffee by</div><div class="caf-footer-val" id="cafFtrCutoff">—</div></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════ 2 · SMART TIMING ═══════════════════════════════ -->
+  <div class="section">
+    <div class="section-title">Smart Timing</div>
+    <div class="caf-timing-grid">
+      <div class="gm-card caf-timing-tile">
+        <div class="caf-tile-eye">Most productive</div>
+        <div class="caf-tile-val" id="cafTilePeak">—</div>
+        <div class="caf-tile-sub" id="cafTilePeakSub">—</div>
+      </div>
+      <div class="gm-card caf-timing-tile">
+        <div class="caf-tile-eye">You'll crash</div>
+        <div class="caf-tile-val" id="cafTileCrash">—</div>
+        <div class="caf-tile-sub" id="cafTileCrashSub">—</div>
+      </div>
+      <div class="gm-card caf-timing-tile">
+        <div class="caf-tile-eye">Coffee cutoff</div>
+        <div class="caf-tile-val" id="cafTileCutoff">—</div>
+        <div class="caf-tile-sub" id="cafTileCutoffSub">—</div>
+      </div>
+    </div>
+    <div class="gm-card"><ul class="caf-tips" id="cafTips"></ul></div>
+  </div>
+
+  <!-- ════════════════════════════════ 3 · TODAY ══════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title">Today</div>
+    <div class="gm-card">
+      <div class="caf-intake-row">
+        <span class="caf-intake-num" id="cafTotalMg">0</span>
+        <span class="caf-intake-unit">mg today</span>
+      </div>
+      <div class="caf-mg-track"><div class="caf-mg-fill" id="cafMgFill" style="width:0%"></div></div>
+      <div class="caf-mg-meta"><span id="cafMgPct">0%</span><span id="cafMgLimit">/ 400 mg</span></div>
+      <div class="caf-active-now" id="cafActiveNow"></div>
+      <div class="caf-note" id="cafNote"></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════ 4 · LOG A DRINK ══════════════════════════════ -->
+  <div class="section">
+    <div class="section-title">Log a Drink</div>
+    <div class="gm-card">
+      <input class="gm-input" id="cafSearch" type="search" placeholder="Search 60+ drinks…" autocomplete="off">
+      <div class="caf-drink-grid" id="cafDrinkGrid"></div>
+      <div class="caf-custom-row">
+        <input class="gm-input caf-custom-name" id="cafCustomName" type="text" placeholder="Custom drink name…" autocomplete="off">
+        <input class="gm-input caf-custom-mg"   id="cafCustomMg"   type="number" placeholder="mg" min="1" max="2000">
+        <button class="gm-add" id="cafCustomAdd" type="button">Add</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════ 5 · LOGGED TODAY ═════════════════════════════ -->
+  <div class="section">
+    <div class="section-title">Logged Today</div>
+    <div class="gm-card"><ul class="caf-log-list" id="cafLogList"></ul></div>
+  </div>
+
+</div><!-- /.page -->
+
+<script>
+(function () {
+'use strict';
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+const LOGS_KEY   = 'caf:logs';
+const CUSTOM_KEY = 'caf:custom';
+const HL = 5;      // caffeine half-life hours
+const CLR = 10;    // mg threshold for "cleared"
+const W = 600, CH = 108, AY = 122; // SVG chart width, curve height, axis y
+
+const DRINKS = [
+  { name:'Espresso (single)',      mg:63,  e:'☕' },
+  { name:'Espresso (double)',      mg:126, e:'☕' },
+  { name:'Filter coffee (8 oz)',   mg:95,  e:'☕' },
+  { name:'Filter coffee (16 oz)', mg:190, e:'☕' },
+  { name:'Americano',              mg:77,  e:'☕' },
+  { name:'Latte',                  mg:75,  e:'☕' },
+  { name:'Cappuccino',             mg:63,  e:'☕' },
+  { name:'Flat white',             mg:130, e:'☕' },
+  { name:'Macchiato',              mg:63,  e:'☕' },
+  { name:'Cold brew (8 oz)',       mg:155, e:'🧊' },
+  { name:'Cold brew (16 oz)',      mg:310, e:'🧊' },
+  { name:'Nitro cold brew (12 oz)',mg:215, e:'🧊' },
+  { name:'Instant coffee',         mg:65,  e:'☕' },
+  { name:'Turkish coffee',         mg:50,  e:'☕' },
+  { name:'Moka pot',               mg:120, e:'☕' },
+  { name:'Aeropress',              mg:80,  e:'☕' },
+  { name:'French press (8 oz)',    mg:107, e:'☕' },
+  { name:'Pour over',              mg:100, e:'☕' },
+  { name:'Black tea',              mg:47,  e:'🍵' },
+  { name:'Green tea',              mg:28,  e:'🍵' },
+  { name:'Matcha latte',           mg:70,  e:'🍵' },
+  { name:'Matcha ceremonial',      mg:34,  e:'🍵' },
+  { name:'Oolong tea',             mg:37,  e:'🍵' },
+  { name:'White tea',              mg:28,  e:'🍵' },
+  { name:'Pu-erh tea',             mg:60,  e:'🍵' },
+  { name:'Chai latte',             mg:50,  e:'🍵' },
+  { name:'Yerba mate',             mg:78,  e:'🌿' },
+  { name:'Red Bull (8.4 oz)',      mg:80,  e:'⚡' },
+  { name:'Red Bull (16 oz)',       mg:160, e:'⚡' },
+  { name:'Monster Energy (16 oz)',mg:160, e:'⚡' },
+  { name:'Celsius (12 oz)',        mg:200, e:'⚡' },
+  { name:'Ghost Energy (16 oz)',  mg:200, e:'⚡' },
+  { name:'Reign (16 oz)',          mg:300, e:'⚡' },
+  { name:'Bang Energy (16 oz)',   mg:300, e:'⚡' },
+  { name:'5-Hour Energy',          mg:200, e:'⚡' },
+  { name:'Rockstar (16 oz)',       mg:160, e:'⚡' },
+  { name:'NOS (16 oz)',            mg:160, e:'⚡' },
+  { name:'Prime Energy (12 oz)',  mg:200, e:'⚡' },
+  { name:'C4 Smart Energy (16 oz)',mg:200,e:'⚡' },
+  { name:'Celsius Stevia (12 oz)',mg:200, e:'⚡' },
+  { name:'Coca-Cola (12 oz)',      mg:34,  e:'🥤' },
+  { name:'Pepsi (12 oz)',          mg:38,  e:'🥤' },
+  { name:'Diet Coke (12 oz)',      mg:46,  e:'🥤' },
+  { name:'Mountain Dew (12 oz)',  mg:54,  e:'🥤' },
+  { name:'Dr Pepper (12 oz)',      mg:41,  e:'🥤' },
+  { name:'C4 Original pre-workout',mg:150,e:'💪' },
+  { name:'C4 Extreme pre-workout', mg:200,e:'💪' },
+  { name:'Ghost Pre-Workout',      mg:200,e:'💪' },
+  { name:'Pre-JYM',                mg:300,e:'💪' },
+  { name:'Woke AF',                mg:333,e:'💪' },
+  { name:'Dark chocolate (1 oz)', mg:12,  e:'🍫' },
+  { name:'Milk chocolate (1 oz)', mg:6,   e:'🍫' },
+  { name:'Hot chocolate (8 oz)',  mg:5,   e:'🍫' },
+  { name:'Caffeine pill (100 mg)',mg:100, e:'💊' },
+  { name:'Caffeine pill (200 mg)',mg:200, e:'💊' },
+  { name:'Green tea extract',      mg:400,e:'💊' },
+  { name:'Vivarin tablet',         mg:200,e:'💊' },
+  { name:'Kombucha (8 oz)',        mg:15, e:'🫧' },
+  { name:'Decaf espresso',         mg:4,  e:'☕' },
+  { name:'Decaf coffee (8 oz)',   mg:7,  e:'☕' },
+  { name:'Excedrin (2 tabs)',      mg:130,e:'💊' },
+];
+
+// ─── Mutable state ────────────────────────────────────────────────────────────
+let chartMode  = 'line';
+let liveCurve  = [];   // updated each rerender, read by chart interaction
+
+// ─── Storage ─────────────────────────────────────────────────────────────────
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+}
+function pad(n) { return String(n).padStart(2,'0'); }
+function getLogs()     { try { return JSON.parse(localStorage.getItem(LOGS_KEY))   || []; } catch { return []; } }
+function saveLogs(v)   { localStorage.setItem(LOGS_KEY,   JSON.stringify(v)); }
+function getCustom()   { try { return JSON.parse(localStorage.getItem(CUSTOM_KEY)) || []; } catch { return []; } }
+function saveCustom(v) { localStorage.setItem(CUSTOM_KEY, JSON.stringify(v)); }
+function todayLogs()   { const t = todayStr(); return getLogs().filter(l => l.date === t); }
+
+// ─── Personalization ─────────────────────────────────────────────────────────
+function bodyKg() {
+  try {
+    const s = JSON.parse(localStorage.getItem('po_water_v1'));
+    const kg = s?.profile?.weightKg || 70;
+    return s?.weightUnit === 'lb' ? kg / 2.20462 : kg;
+  } catch { return 70; }
+}
+function sleepSchedule() {
+  let wake = 7, bed = 23, rec = null;
+  try {
+    const w = JSON.parse(localStorage.getItem('whoop_cache_v1'));
+    if (w?.recovery) rec = w.recovery.score?.recovery_score ?? w.recovery.recovery_score ?? null;
+    const sl = w?.sleep;
+    if (sl?.end)   wake = new Date(sl.end).getHours()   + new Date(sl.end).getMinutes()/60;
+    if (sl?.start) {
+      let b = new Date(sl.start).getHours() + new Date(sl.start).getMinutes()/60;
+      if (b < 12) b += 24;
+      bed = b;
+    }
+    wake = Math.max(4,  Math.min(11, wake));
+    bed  = Math.max(20, Math.min(26, bed));
+  } catch {}
+  return { wake, bed, rec };
+}
+
+// ─── Pharmacokinetics ────────────────────────────────────────────────────────
+function activeMg(t, logs) {
+  let s = 0;
+  for (const l of logs) {
+    const lh = new Date(l.time).getHours() + new Date(l.time).getMinutes()/60;
+    const dt = t - lh;
+    if (dt >= 0) s += l.mg * Math.pow(0.5, dt / HL);
+  }
+  return s;
+}
+
+// ─── Energy model ─────────────────────────────────────────────────────────────
+function gauss(t, mu, sd) { return Math.exp(-0.5 * ((t-mu)/sd)**2); }
+
+function energy(t, logs, wake, bed) {
+  const circ = 50 + 18 * Math.cos(2 * Math.PI * (t - 16.5) / 24);
+  if (t < wake || t >= bed) return Math.max(3, Math.min(20, circ - 34));
+  const awake  = Math.max(0, t - wake);
+  const ldip   = 10 * gauss(t, 14, 1.4);
+  const sp     = Math.min(awake, 24) * 1.7;
+  const bump   = 10 * gauss(t - wake, 1.2, 0.9);
+  const boost  = 34 * (1 - Math.exp(-activeMg(t, logs) / 110));
+  return Math.max(0, Math.min(100, circ - ldip - sp + bump + boost));
+}
+
+function buildCurve(logs, wake, bed) {
+  const pts = [];
+  for (let i = 0; i <= 144; i++) pts.push(energy(i/6, logs, wake, bed));
+  return pts;
+}
+
+// ─── SVG chart helpers ────────────────────────────────────────────────────────
+function tx(h) { return (h/24) * W; }
+function ty(e) { return CH * (1 - e/100); }
+
+function svgEl(tag, attrs) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k,v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+function smoothD(pts) {
+  if (!pts.length) return '';
+  let d = `M${tx(0).toFixed(1)},${ty(pts[0]).toFixed(1)}`;
+  for (let i = 1; i < pts.length; i++) {
+    const x0 = tx((i-1)/6), y0 = ty(pts[i-1]);
+    const x1 = tx(i/6),     y1 = ty(pts[i]);
+    const cx = (x0+x1)/2;
+    d += ` C${cx.toFixed(1)},${y0.toFixed(1)} ${cx.toFixed(1)},${y1.toFixed(1)} ${x1.toFixed(1)},${y1.toFixed(1)}`;
+  }
+  return d;
+}
+
+function areaD(pts, baseY) {
+  if (!pts.length) return '';
+  const last = (pts.length-1)/6;
+  return smoothD(pts) + ` L${tx(last).toFixed(1)},${baseY} L${tx(0)},${baseY} Z`;
+}
+
+function renderChart(logs, wake, bed) {
+  const curve    = buildCurve(logs, wake, bed);
+  const baseline = buildCurve([], wake, bed);
+  liveCurve = curve;
+
+  // Night regions
+  const night = document.getElementById('cafNight');
+  night.innerHTML = '';
+  const nc = 'rgba(8,8,18,0.4)';
+  if (wake > 0) night.appendChild(svgEl('rect',{x:0,y:0,width:tx(wake).toFixed(1),height:CH,fill:nc}));
+  const bClamped = Math.min(bed,24);
+  if (bClamped < 24) night.appendChild(svgEl('rect',{x:tx(bClamped).toFixed(1),y:0,width:(W-tx(bClamped)).toFixed(1),height:CH,fill:nc}));
+
+  // Grid + axis
+  const grid = document.getElementById('cafGrid');
+  const axis = document.getElementById('cafAxis');
+  grid.innerHTML = ''; axis.innerHTML = '';
+  [0,6,12,18,24].forEach(h => {
+    const x = tx(h).toFixed(1);
+    grid.appendChild(svgEl('line',{x1:x,x2:x,y1:0,y2:CH,stroke:'rgba(255,255,255,0.04)','stroke-dasharray':'3 4'}));
+    const labels = {0:'12A',6:'6A',12:'12P',18:'6P',24:'12A'};
+    const t = svgEl('text',{x,y:AY,'text-anchor':'middle',fill:'rgba(118,116,110,0.9)','font-size':'9','font-family':'ui-monospace,monospace'});
+    t.textContent = labels[h];
+    axis.appendChild(t);
+  });
+
+  // Mode rendering
+  const curveEl  = document.getElementById('cafCurve');
+  const sbEl     = document.getElementById('cafStackBase');
+  const scEl     = document.getElementById('cafStackCaf');
+  const barsEl   = document.getElementById('cafBars');
+  curveEl.setAttribute('d','');
+  sbEl.setAttribute('d',''); sbEl.setAttribute('fill','none'); sbEl.setAttribute('stroke','none');
+  scEl.setAttribute('d',''); scEl.setAttribute('fill','none'); scEl.setAttribute('stroke','none');
+  barsEl.innerHTML = '';
+
+  if (chartMode === 'line') {
+    curveEl.setAttribute('d', smoothD(curve));
+    curveEl.setAttribute('stroke','#6BE3A4');
+  } else if (chartMode === 'bars') {
+    const bw = (W/24) - 2;
+    for (let h = 0; h < 24; h++) {
+      const v  = curve[h*6];
+      const bh = CH * v / 100;
+      const col = v >= 62 ? 'rgba(107,227,164,0.5)' : v >= 40 ? 'rgba(242,192,99,0.5)' : 'rgba(255,107,107,0.5)';
+      barsEl.appendChild(svgEl('rect',{x:(tx(h)+1).toFixed(1),y:(CH-bh).toFixed(1),width:bw.toFixed(1),height:bh.toFixed(1),rx:'2',fill:col}));
+    }
+  } else { // stack
+    sbEl.setAttribute('d', areaD(baseline, CH));
+    sbEl.setAttribute('fill','rgba(107,227,164,0.07)');
+    sbEl.setAttribute('stroke','rgba(107,227,164,0.28)');
+    sbEl.setAttribute('stroke-width','1.5');
+    // between baseline top and curve top
+    let d = smoothD(curve);
+    // reverse baseline
+    const bRev = baseline.slice().reverse();
+    for (let i = 0; i < bRev.length; i++) {
+      const idx = (bRev.length-1-i);
+      d += ` L${tx(idx/6).toFixed(1)},${ty(bRev[i]).toFixed(1)}`;
+    }
+    d += ' Z';
+    scEl.setAttribute('d', d);
+    scEl.setAttribute('fill','rgba(201,163,107,0.14)');
+    scEl.setAttribute('stroke','rgba(201,163,107,0.5)');
+    scEl.setAttribute('stroke-width','1.5');
+    curveEl.setAttribute('d', smoothD(curve));
+    curveEl.setAttribute('stroke','rgba(201,163,107,0.9)');
+  }
+
+  // Now line + dot
+  const nowH = new Date().getHours() + new Date().getMinutes()/60;
+  const nx = tx(nowH).toFixed(1);
+  const ny = ty(curve[Math.round(nowH*6)] ?? 50).toFixed(1);
+  setA('cafNowLine',{x1:nx,x2:nx,y1:0,y2:CH});
+  setA('cafNowDot', {cx:nx,cy:ny});
+}
+
+// ─── Ring + state ─────────────────────────────────────────────────────────────
+function eColor(e) { return e >= 62 ? '#6BE3A4' : e >= 40 ? '#F2C063' : '#FF6B6B'; }
+function eWord(e)  { return e >= 80 ? 'Peak' : e >= 62 ? 'High' : e >= 48 ? 'Steady' : e >= 35 ? 'Dip' : 'Low'; }
+
+function updateRing(e, lbl) {
+  const circ = 2 * Math.PI * 38; // r=38 → 238.76
+  const fill = document.getElementById('cafRingFill');
+  if (fill) { fill.style.strokeDashoffset = circ * (1 - e/100); fill.style.stroke = eColor(e); }
+  setT('cafRingNum',  Math.round(e));
+  setT('cafRingLbl',  lbl || 'NOW');
+  const wrd = document.getElementById('cafStateWord');
+  if (wrd) { wrd.textContent = eWord(e); wrd.style.color = eColor(e); }
+}
+
+// ─── Footer band ──────────────────────────────────────────────────────────────
+function renderFooter(curve, wake, bed) {
+  const nowH  = new Date().getHours() + new Date().getMinutes()/60;
+  const nowI  = Math.round(nowH*6);
+
+  // Peak focus window (longest run ≥ 62)
+  let bS=-1, bL=0, cS=-1, cL=0;
+  curve.forEach((v,i)=>{
+    if(v>=62){if(cS<0)cS=i;cL++;if(cL>bL){bL=cL;bS=cS;}}else{cS=-1;cL=0;}
+  });
+  let peakI=0; curve.forEach((v,i)=>{if(v>curve[peakI])peakI=i;});
+  setT('cafFtrPeak', bL>0 ? fmtH(bS/6)+'–'+fmtH((bS+bL)/6) : fmtH(peakI/6)+' ('+Math.round(curve[peakI])+')');
+
+  // Crash: steepest 1-h drop in next 8h
+  let cH=null, cE=null, cDrop=0;
+  for(let i=nowI; i<Math.min(nowI+48, curve.length-7); i++){
+    const d = curve[i]-curve[i+6];
+    if(d>cDrop){cDrop=d; cH=(i+6)/6; cE=curve[i+6];}
+  }
+  setT('cafFtrCrash', cDrop>12 ? fmtH(cH)+' (→'+Math.round(cE)+')' : 'None expected');
+
+  // Cutoff
+  const cutH = bed - HL * Math.log2(95/30);
+  setT('cafFtrCutoff', fmtH(cutH));
+}
+
+// ─── Smart Timing ─────────────────────────────────────────────────────────────
+function renderTiming(curve, wake, bed, kg, rec) {
+  const nowH = new Date().getHours() + new Date().getMinutes()/60;
+  const nowI = Math.round(nowH*6);
+
+  // Most productive
+  let peakI=0; curve.forEach((v,i)=>{if(v>curve[peakI])peakI=i;});
+  let wS=peakI, wE=peakI;
+  while(wS>0 && curve[wS-1]>=curve[peakI]-10) wS--;
+  while(wE<curve.length-1 && curve[wE+1]>=curve[peakI]-10) wE++;
+  setT('cafTilePeak', fmtH(peakI/6));
+  setT('cafTilePeakSub', fmtH(wS/6)+'–'+fmtH(wE/6)+' · score '+Math.round(curve[peakI]));
+
+  // Crash
+  let cH=null, cE=null, cDrop=0;
+  for(let i=nowI; i<Math.min(nowI+48, curve.length-7); i++){
+    const d = curve[i]-curve[i+6];
+    if(d>cDrop){cDrop=d; cH=(i+6)/6; cE=curve[i+6];}
+  }
+  if(cDrop>12){setT('cafTileCrash',fmtH(cH));setT('cafTileCrashSub','Energy drops to '+Math.round(cE));}
+  else{setT('cafTileCrash','None');setT('cafTileCrashSub','No significant drop expected');}
+
+  // Cutoff
+  const cutH = bed - HL * Math.log2(95/30);
+  setT('cafTileCutoff', fmtH(cutH));
+  setT('cafTileCutoffSub', '<30 mg at '+fmtH(bed)+' bedtime');
+
+  // Tips
+  const target = Math.round(kg*3);
+  const tips = [
+    {i:'⏰', t:'Front-load: wait 90 min after waking before your first coffee (→ '+fmtH(wake+1.5)+') to let cortisol peak first.'},
+    {i:'🌙', t:'Cut off caffeine by '+fmtH(cutH)+' to stay under 30 mg at your '+fmtH(bed)+' bedtime.'},
+    {i:'💧', t:'Match every caffeinated drink with ~200 ml of water to offset the mild diuretic effect.'},
+    {i:'🎯', t:'Your weight-based sweet spot: ~'+target+' mg/day (3 mg/kg · '+Math.round(kg)+' kg). More rarely adds energy.'},
+  ];
+  if(cDrop>12) tips.push({i:'🌞',t:'A 10-min walk or daylight exposure around '+fmtH(cH-0.5)+' can blunt the predicted energy drop.'});
+  if(rec!=null&&rec<34) tips.push({i:'⚠️',t:'WHOOP recovery '+Math.round(rec)+'% — caffeine won\'t fix poor recovery. Cap at 200 mg today.'});
+  else if(rec!=null&&rec<60) tips.push({i:'💤',t:'Moderate WHOOP recovery ('+Math.round(rec)+'%). Consider limiting to 300 mg to avoid masking fatigue.'});
+
+  const ul = document.getElementById('cafTips');
+  if(ul) ul.innerHTML = tips.map(t=>'<li class="caf-tip"><span class="caf-tip-icon">'+t.i+'</span><span>'+esc(t.t)+'</span></li>').join('');
+}
+
+// ─── Today section ────────────────────────────────────────────────────────────
+function renderToday(logs, wake, bed, kg, rec) {
+  const nowH  = new Date().getHours() + new Date().getMinutes()/60;
+  const total = logs.reduce((s,l)=>s+l.mg,0);
+  const aMg   = Math.round(activeMg(nowH, logs));
+  let limit   = 400;
+  if(rec!=null&&rec<34)  limit=200;
+  else if(rec!=null&&rec<60) limit=300;
+
+  setT('cafTotalMg', total);
+  const pct = Math.min(100, total/limit*100);
+  const fill = document.getElementById('cafMgFill');
+  if(fill){fill.style.width=pct.toFixed(1)+'%';fill.style.background=pct>=90?'var(--danger)':pct>=65?'var(--warning)':'var(--success)';}
+  setT('cafMgPct', Math.round(pct)+'%');
+  setT('cafMgLimit', '/ '+limit+' mg'+(rec!=null&&rec<60?' (adjusted)':''));
+  const an = document.getElementById('cafActiveNow');
+  if(an) an.innerHTML = '<strong>'+aMg+' mg</strong> active in your bloodstream right now';
+  const note = document.getElementById('cafNote');
+  if(note){
+    let msg='Target for your weight ('+Math.round(kg)+' kg): ~'+Math.round(kg*3)+' mg/day.';
+    if(rec!=null&&rec<34) msg+=' Low WHOOP recovery — stay at 200 mg max today.';
+    else if(rec!=null&&rec<60) msg+=' Moderate recovery — ceiling adjusted to 300 mg.';
+    else if(total===0) msg+=' No caffeine logged yet.';
+    else if(pct>80) msg+=' Getting close to your daily limit.';
+    note.textContent=msg;
+  }
+}
+
+// ─── Drink grid ───────────────────────────────────────────────────────────────
+function renderGrid(q) {
+  const grid = document.getElementById('cafDrinkGrid');
+  if(!grid) return;
+  const custom = getCustom().map(c=>({...c,custom:true}));
+  const all    = [...custom, ...DRINKS];
+  const filt   = q ? all.filter(d=>d.name.toLowerCase().includes(q.toLowerCase())) : all;
+  if(!filt.length){
+    grid.innerHTML='<span style="font-size:11.5px;color:var(--text-tertiary);font-style:italic">No drinks found — add a custom one below</span>';
+    return;
+  }
+  grid.innerHTML = filt.map(d=>
+    '<button class="caf-chip'+(d.custom?' caf-chip-custom':'')+
+    '" data-n="'+esc(d.name)+'" data-mg="'+d.mg+'" data-e="'+esc(d.e||d.emoji||'☕')+'" type="button">'+
+    '<span>'+(d.e||d.emoji||'☕')+'</span>'+esc(d.name)+
+    '<span class="caf-chip-mg">'+d.mg+'mg</span></button>'
+  ).join('');
+  grid.querySelectorAll('.caf-chip').forEach(btn=>{
+    btn.addEventListener('click',()=>logDrink(btn.dataset.n,+btn.dataset.mg,btn.dataset.e));
+  });
+}
+
+function logDrink(name, mg, emoji) {
+  const entry = {
+    id: 'c'+Date.now()+'_'+Math.random().toString(36).slice(2,6),
+    name, mg, emoji: emoji||'☕',
+    time: new Date().toISOString(),
+    date: todayStr()
+  };
+  const all = getLogs(); all.push(entry); saveLogs(all);
+  rerender();
+}
+
+// ─── Log list ─────────────────────────────────────────────────────────────────
+function renderLogList(logs) {
+  const ul = document.getElementById('cafLogList');
+  if(!ul) return;
+  if(!logs.length){ul.innerHTML='<li class="caf-log-empty">Nothing logged yet today</li>';return;}
+  const nowH = new Date().getHours()+new Date().getMinutes()/60;
+  ul.innerHTML = logs.slice().reverse().map(l=>{
+    const lh = new Date(l.time).getHours()+new Date(l.time).getMinutes()/60;
+    const ph = lh+0.75;
+    const hh = lh+HL;
+    const gh = l.mg>CLR ? lh+HL*Math.log2(l.mg/CLR) : lh+0.1;
+    const ms = (lbl,h)=>'<span class="caf-ms'+(h<nowH?' past':'')+
+      '"><span class="caf-ms-lbl">'+lbl+'</span> '+fmtH(h)+'</span>';
+    return '<li class="caf-log-entry" data-id="'+l.id+'">'+
+      '<div class="caf-log-emoji">'+(l.emoji||'☕')+'</div>'+
+      '<div class="caf-log-body">'+
+        '<div class="caf-log-name">'+esc(l.name)+'</div>'+
+        '<div class="caf-log-meta">'+fmtTime(new Date(l.time))+' · '+l.mg+' mg</div>'+
+        '<div class="caf-milestones">'+ms('⚡ peak',ph)+ms('½ gone',hh)+ms('✓ clear',gh)+'</div>'+
+      '</div>'+
+      '<button class="caf-log-del" data-id="'+l.id+'" type="button">×</button>'+
+    '</li>';
+  }).join('');
+  ul.querySelectorAll('.caf-log-del').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      saveLogs(getLogs().filter(l=>l.id!==btn.dataset.id)); rerender();
+    });
+  });
+}
+
+// ─── Chart interaction (scrub) ────────────────────────────────────────────────
+function initScrub() {
+  const svg = document.getElementById('cafSvg');
+  if(!svg) return;
+
+  function onMove(clientX) {
+    const r = svg.getBoundingClientRect();
+    const h = Math.max(0,Math.min(24,(clientX-r.left)/r.width*24));
+    const idx = Math.min(Math.round(h*6), liveCurve.length-1);
+    const e = liveCurve[idx] ?? 0;
+    const x = (h/24*W).toFixed(1);
+    const y = ty(e).toFixed(1);
+    setA('cafScrubLine',{x1:x,x2:x,y1:0,y2:CH,opacity:1});
+    setA('cafScrubDot', {cx:x,cy:y,opacity:1});
+    updateRing(e, fmtH(h));
+    setT('cafStateTime', fmtH(h).toUpperCase());
+  }
+  function onLeave() {
+    setA('cafScrubLine',{opacity:0}); setA('cafScrubDot',{opacity:0});
+    const nowH = new Date().getHours()+new Date().getMinutes()/60;
+    updateRing(liveCurve[Math.round(nowH*6)]??0,'NOW');
+    setT('cafStateTime','RIGHT NOW');
+  }
+  svg.addEventListener('mousemove', e=>onMove(e.clientX));
+  svg.addEventListener('mouseleave', onLeave);
+  svg.addEventListener('touchmove',  e=>{e.preventDefault();onMove(e.touches[0].clientX);},{passive:false});
+  svg.addEventListener('touchend',   onLeave);
+}
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
+function fmtH(h) {
+  h=((h%24)+24)%24;
+  const hh=Math.floor(h)%12||12, mm=Math.round((h%1)*60), ampm=Math.floor(h)>=12?'pm':'am';
+  return hh+(mm?':'+pad(mm):'')+ampm;
+}
+function fmtTime(d) {
+  return (d.getHours()%12||12)+':'+pad(d.getMinutes())+(d.getHours()>=12?'pm':'am');
+}
+function setT(id,v) { const e=document.getElementById(id); if(e) e.textContent=v??'—'; }
+function setA(id,attrs) {
+  const e=document.getElementById(id);
+  if(e) for(const[k,v] of Object.entries(attrs)) e.setAttribute(k,v);
+}
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── Master rerender ──────────────────────────────────────────────────────────
+function rerender() {
+  const {wake,bed,rec} = sleepSchedule();
+  const kg   = bodyKg();
+  const logs = todayLogs();
+  const nowH = new Date().getHours()+new Date().getMinutes()/60;
+
+  const curve = buildCurve(logs, wake, bed);
+  liveCurve = curve;
+  updateRing(curve[Math.min(Math.round(nowH*6),curve.length-1)]??0,'NOW');
+  setT('cafStateTime','RIGHT NOW');
+
+  renderChart(logs, wake, bed);
+  renderFooter(curve, wake, bed);
+  renderTiming(curve, wake, bed, kg, rec);
+  renderToday(logs, wake, bed, kg, rec);
+  renderGrid(document.getElementById('cafSearch')?.value || '');
+  renderLogList(logs);
+}
+
+window._cafRerender = rerender;
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function () {
+  // Toggle
+  const tg = document.getElementById('cafToggleGroup');
+  if(tg) tg.addEventListener('click', e=>{
+    const btn = e.target.closest('.caf-toggle-btn');
+    if(!btn) return;
+    chartMode = btn.dataset.mode;
+    tg.querySelectorAll('.caf-toggle-btn').forEach(b=>b.classList.toggle('active',b===btn));
+    rerender();
+  });
+
+  // Search
+  const s = document.getElementById('cafSearch');
+  if(s) s.addEventListener('input', ()=>renderGrid(s.value));
+
+  // Custom add
+  const addBtn = document.getElementById('cafCustomAdd');
+  if(addBtn) addBtn.addEventListener('click', ()=>{
+    const nEl = document.getElementById('cafCustomName');
+    const mEl = document.getElementById('cafCustomMg');
+    const name = nEl?.value.trim();
+    const mg   = parseInt(mEl?.value);
+    if(!name||!mg||mg<1) return;
+    const c = getCustom();
+    if(!c.find(x=>x.name.toLowerCase()===name.toLowerCase()))
+      { c.unshift({name,mg,e:'☕'}); saveCustom(c); }
+    logDrink(name, mg, '☕');
+    if(nEl) nEl.value=''; if(mEl) mEl.value='';
+  });
+
+  initScrub();
+  rerender();
+  setInterval(rerender, 60_000);
+});
+
+})(); // end IIFE
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  if (typeof initCloudSync !== 'function') return;
+  initCloudSync({
+    appKey: 'caffeine',
+    syncedKeys: ['caf:logs', 'caf:custom'],
+    onApplied: function () { if (window._cafRerender) window._cafRerender(); }
+  });
+});
+</script>
+</body>
+</html>
