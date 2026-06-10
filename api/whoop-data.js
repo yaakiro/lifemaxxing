@@ -1,44 +1,31 @@
-// Fetches the latest recovery, sleep, and cycle (strain) records
-// from WHOOP on behalf of the browser. The browser passes its
-// access token in the Authorization header; this function acts as
-// a thin proxy so the WHOOP API is never called directly from the
-// client (avoids CORS issues).
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
   const auth = req.headers.authorization || '';
-  if (!auth.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing token' });
+  if (!auth.startsWith('Bearer ')) return res.status(401).json({ error: 'missing bearer token' });
+  const path = (req.query && req.query.path) || '';
+  if (!path || !path.startsWith('/')) return res.status(400).json({ error: 'path required' });
+  const fwd = new URLSearchParams();
+  for (const [k, v] of Object.entries(req.query || {})) {
+    if (k !== 'path') fwd.set(k, String(v));
   }
-  const token = auth.slice(7);
-
-  const headers = { Authorization: `Bearer ${token}` };
-  const base    = 'https://api.prod.whoop.com/developer/v1';
-
+  const qs = fwd.toString();
+  // /cycle still lives on v1; everything else is v2
+  const base = path.startsWith('/cycle')
+    ? 'https://api.prod.whoop.com/developer/v1'
+    : 'https://api.prod.whoop.com/developer/v2';
+  const url = base + path + (qs ? '?' + qs : '');
   try {
-    const [recRes, sleepRes, cycleRes] = await Promise.all([
-      fetch(`${base}/recovery?limit=1`,        { headers }),
-      fetch(`${base}/activity/sleep?limit=1`,  { headers }),
-      fetch(`${base}/cycle?limit=1`,           { headers }),
-    ]);
-
-    // Propagate 401 so the client knows to refresh
-    if (recRes.status === 401 || sleepRes.status === 401 || cycleRes.status === 401) {
-      return res.status(401).json({ error: 'Token expired' });
-    }
-
-    const [recData, sleepData, cycleData] = await Promise.all([
-      recRes.ok   ? recRes.json()   : null,
-      sleepRes.ok ? sleepRes.json() : null,
-      cycleRes.ok ? cycleRes.json() : null,
-    ]);
-
-    res.setHeader('Cache-Control', 'no-store');
-    res.json({
-      recovery: recData?.records?.[0]   ?? null,
-      sleep:    sleepData?.records?.[0] ?? null,
-      cycle:    cycleData?.records?.[0] ?? null,
+    const r = await fetch(url, {
+      headers: { 'Authorization': auth, 'Accept': 'application/json' },
     });
+    const text = await r.text();
+    res.status(r.status).setHeader('Content-Type', 'application/json');
+    return res.send(text);
   } catch (e) {
-    console.error('whoop-data error', e);
-    res.status(500).json({ error: 'Server error' });
+    return res.status(500).json({ error: 'proxy fetch failed: ' + (e.message || String(e)) });
   }
-};
+}

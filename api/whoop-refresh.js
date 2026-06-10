@@ -1,38 +1,34 @@
-// Exchanges a WHOOP refresh token for a new access token.
-// Called by the client when /api/whoop-data returns 401.
-module.exports = async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  const { refresh_token } = req.body || {};
-  if (!refresh_token) {
-    return res.status(400).json({ error: 'Missing refresh_token' });
-  }
-
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
+  const refresh = body && body.refresh_token;
+  if (!refresh) return res.status(400).json({ error: 'refresh_token required' });
+  const clientId     = process.env.WHOOP_CLIENT_ID;
+  const clientSecret = process.env.WHOOP_CLIENT_SECRET;
+  if (!clientId || !clientSecret) return res.status(500).json({ error: 'server not configured' });
   try {
-    const tokenRes = await fetch('https://api.prod.whoop.com/oauth/oauth2/token', {
+    const form = new URLSearchParams({
+      grant_type:    'refresh_token',
+      refresh_token: refresh,
+      client_id:     clientId,
+      client_secret: clientSecret,
+      scope:         'offline',
+    });
+    const r = await fetch('https://api.prod.whoop.com/oauth/oauth2/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type:    'refresh_token',
-        refresh_token,
-        client_id:     process.env.WHOOP_CLIENT_ID,
-        client_secret: process.env.WHOOP_CLIENT_SECRET,
-      }),
+      body: form,
     });
-
-    if (!tokenRes.ok) {
-      const body = await tokenRes.text().catch(() => '');
-      console.error('WHOOP refresh failed', tokenRes.status, body);
-      return res.status(401).json({ error: 'Refresh failed' });
-    }
-
-    const tokens = await tokenRes.json();
-    res.setHeader('Cache-Control', 'no-store');
-    res.json(tokens);
+    const text = await r.text();
+    if (!r.ok) return res.status(500).json({ error: 'refresh failed: ' + text });
+    try { return res.status(200).json(JSON.parse(text)); }
+    catch { return res.status(500).json({ error: 'non-JSON' }); }
   } catch (e) {
-    console.error('whoop-refresh error', e);
-    res.status(500).json({ error: 'Server error' });
+    return res.status(500).json({ error: 'fetch error: ' + (e.message || String(e)) });
   }
-};
+}
